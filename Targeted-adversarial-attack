@@ -10,7 +10,7 @@ model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
 model.eval()
 
 # Load the original image of a red traffic light
-image_path = '/home/abanoub/Downloads/Traffic-Light-Offences.jpg'  # Replace with the path to your image
+image_path = '/path/to/your/Traffic-Light-Offences.jpg'  # Replace with the path to your image
 original_image = Image.open(image_path)
 
 # Transform the original image
