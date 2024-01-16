@@ -1,0 +1,110 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+from PIL import Image
+
+# Load the pre-trained ResNet model
+model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
+model.eval()
+
+# Load the original image of a red traffic light
+image_path = '/home/abanoub/Downloads/Traffic-Light-Offences.jpg'  # Replace with the path to your image
+original_image = Image.open(image_path)
+
+# Transform the original image
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+])
+
+original_tensor = transform(original_image).unsqueeze(0)
+
+# Define the target label for the green traffic light
+target_label = torch.tensor([13])  # Assuming label 13 corresponds to a green traffic light
+
+# Set the model to evaluation mode
+model.eval()
+
+# Define the loss function (cross entropy) and optimization algorithm
+loss_fn = nn.CrossEntropyLoss()
+optimizer = optim.SGD([original_tensor.requires_grad_()], lr=0.01)
+
+# Number of optimization steps
+num_steps = 100
+
+# Epsilon value for controlling the perturbation magnitude
+epsilon = 0.001
+
+for step in range(num_steps):
+    # Forward pass to get the logits
+    logits = model(original_tensor)
+    
+    # Calculate the cross-entropy loss
+    ce_loss = -loss_fn(logits, target_label)
+
+    # Calculate the perceptual loss (L1 loss between the perturbed and original images)
+    perceptual_loss = nn.L1Loss()(original_tensor, perturbed_image)
+
+    # Constraint on the perceptual loss to make changes visually subtle
+    perceptual_loss_constraint = 0.01
+
+    # Total loss is a combination of cross-entropy and perceptual losses
+    loss = ce_loss + perceptual_loss_constraint * perceptual_loss
+
+    # Zero out previous gradients
+    optimizer.zero_grad()
+
+    # Backward pass to compute the gradient
+    loss.backward()
+
+    # Generate adversarial example
+    perturbed_image = original_tensor + epsilon * torch.sign(original_tensor.grad)
+
+    # Clip the perturbed image to ensure it remains a valid image
+    perturbed_image = torch.clamp(perturbed_image, 0, 1)
+
+    # Update the original image data with the perturbed image
+    original_tensor.data = perturbed_image
+
+    # Zero out gradients for the next iteration
+    original_tensor.grad.zero_()
+
+    if step % 10 == 0:
+        print(f"Step [{step}/{num_steps}], CE Loss: {ce_loss.item()}, Perceptual Loss: {perceptual_loss.item()}")
+
+# Display the results
+fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+# Original image
+axs[0].imshow(original_image)
+axs[0].set_title("Red Traffic Light\nConfidence: {:.2%}".format(torch.nn.functional.softmax(logits, dim=1)[0, target_label].item()))
+axs[0].axis('off')
+
+# Perturbed image
+perturbed_image_np = perturbed_image.squeeze().detach().numpy().transpose((1, 2, 0))
+axs[1].imshow(perturbed_image_np)
+axs[1].set_title("Green Traffic Light\nConfidence: {:.2%}".format(torch.nn.functional.softmax(logits, dim=1)[0, target_label].item()))
+axs[1].axis('off')
+
+plt.show()
+
+# Check model predictions and confidence scores
+with torch.no_grad():
+    perturbed_logits = model(perturbed_image)
+    perturbed_probs = torch.nn.functional.softmax(perturbed_logits, dim=1)
+
+    original_preds = torch.argmax(model(original_tensor), dim=1)
+    perturbed_preds = torch.argmax(perturbed_logits, dim=1)
+
+    print("Original Prediction:", original_preds.item())
+    print("Perturbed Prediction:", perturbed_preds.item())
+
+    print("Confidence (Original): {:.2%}".format(perturbed_probs[0, original_preds].item()))
+    print("Confidence (Perturbed): {:.2%}".format(perturbed_probs[0, perturbed_preds].item()))
+
+    # Print epsilon and noise vector
+    print("Epsilon:", epsilon)
+    noise_vector = perturbed_image - original_tensor
+    print("Noise Vector:", noise_vector.squeeze().detach().numpy())
